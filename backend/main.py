@@ -113,12 +113,12 @@ def generate_answer(video_info, question):
     """Generate answer using video information"""
 
     context = f"""
-    Video Title: {video_info.get('title', 'Unknown')}
-    Channel: {video_info.get('uploader', 'Unknown')}
-    Description: {video_info.get('description', 'No description available')[:500]}...
-    Duration: {video_info.get('duration', 0)} seconds
-    Tags: {', '.join(video_info.get('tags', [])[:10])}
-    Categories: {', '.join(video_info.get('categories', []))}
+        Video Title: {video_info.get('title', 'Unknown')}
+        Channel: {video_info.get('uploader', 'Unknown')}
+        Description: {video_info.get('description', 'No description available')[:500]}...
+        Duration: {video_info.get('duration', 0)} seconds
+        Tags: {', '.join(video_info.get('tags', [])[:10])}
+        Categories: {', '.join(video_info.get('categories', []))}
     """
 
     question_lower = question.lower()
@@ -135,7 +135,10 @@ def generate_answer(video_info, question):
 
 def get_subtitle_content(video_url, lang="en"):
     """Downloads and extracts subtitle content for a given video URL and language."""
-    temp_dir = tempfile.mkdtemp()
+
+    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_subs")
+    os.makedirs(temp_dir, exist_ok=True)
+
     try:
         ydl_opts = {
             "writesubtitles": True,
@@ -150,9 +153,10 @@ def get_subtitle_content(video_url, lang="en"):
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             logger.info(f"Attempting to download subtitles for {video_url} in lang {lang}")
-            info = ydl.extract_info(video_url, download=True)  # download=True is important for subtitles
+            info = ydl.extract_info(video_url, download=True)
 
             requested_subs = info.get("requested_subtitles")
+
             if requested_subs and lang in requested_subs:
                 subtitle_info = requested_subs[lang]
                 subtitle_file_path = subtitle_info.get("filepath")
@@ -162,9 +166,11 @@ def get_subtitle_content(video_url, lang="en"):
                         subtitle_content = f.read()
                     logger.info(f"Successfully extracted subtitles from {subtitle_file_path}")
                     return subtitle_content
-                elif subtitle_info.get("data"):  # Check for direct data
+                
+                elif subtitle_info.get("data"):
                     logger.info(f"Extracted subtitles directly from data field for {video_url}")
                     return subtitle_info["data"]
+                
                 else:
                     logger.warning(
                         f"Subtitle file path not found or file does not exist for lang '{lang}' at '{video_url}'. Path: {subtitle_file_path}"
@@ -173,16 +179,22 @@ def get_subtitle_content(video_url, lang="en"):
             else:
                 logger.info(f"No subtitles found or downloaded for language '{lang}' for URL '{video_url}'.")
                 return "Subtitles not available for the specified language or download failed."
+            
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"yt-dlp DownloadError for subtitles: {e} for URL {video_url}")
+
         if "video unavailable" in str(e).lower():
             return "Video unavailable."
+        
         if "subtitles not available" in str(e).lower() or "no closed captions found" in str(e).lower():
             return "Subtitles not available for the specified language."
+        
         return f"Error downloading subtitles: {str(e)}"
+    
     except Exception as e:
         logger.error(f"Error getting subtitle content: {e} for URL {video_url}")
         return f"An unexpected error occurred while fetching subtitles: {str(e)}"
+    
     finally:
         try:
             if os.path.exists(temp_dir):
@@ -190,6 +202,7 @@ def get_subtitle_content(video_url, lang="en"):
                     os.remove(os.path.join(temp_dir, f_name))
                 os.rmdir(temp_dir)
                 logger.info(f"Cleaned up temp directory: {temp_dir}")
+
         except Exception as e_cleanup:
             logger.error(f"Error cleaning up temp directory {temp_dir}: {e_cleanup}")
 
@@ -253,15 +266,44 @@ def get_subtitles_handler():
 
         subtitle_text = get_subtitle_content(video_url, lang)
 
-        if subtitle_text:
-            # Check if the returned text is an error message from get_subtitle_content
-            error_keywords = ["error", "unavailable", "not found", "could not be retrieved", "failed"]
-            if any(keyword in subtitle_text.lower() for keyword in error_keywords):
-                return jsonify({"error": subtitle_text}), 404  # Or 500 depending on error type
-            return jsonify({"subtitles": subtitle_text}), 200
+        if not subtitle_text:
+            return jsonify({"error": "Failed to retrieve subtitles or subtitles are empty."}), 404
+
+        # getting error messages from get_subtitle_content 
+        known_error_messages = [
+            "Video unavailable.",
+            "Subtitles not available for the specified language.",
+            "Subtitles were requested but could not be retrieved from file.",
+            "Subtitles not available for the specified language or download failed."
+        ]
+        # error prefixes
+        known_error_prefixes = [
+            "Error downloading subtitles:",
+            "An unexpected error occurred while fetching subtitles:"
+        ]
+
+        is_actual_error = False
+        if subtitle_text in known_error_messages:
+            is_actual_error = True
         else:
-            # This case should ideally be covered by error messages from get_subtitle_content
-            return jsonify({"error": "Subtitles not found or an unknown error occurred."}), 404
+            for prefix in known_error_prefixes:
+                if subtitle_text.startswith(prefix):
+                    is_actual_error = True
+                    break
+        
+        if is_actual_error:
+            status_code = 500  
+            # server-side/download issues
+            if (
+                "unavailable" in subtitle_text.lower() or 
+                "not found" in subtitle_text.lower() or 
+                "not available" in subtitle_text.lower()
+            ):
+                status_code = 404 
+                # type errors
+                return jsonify({"error": subtitle_text}), status_code
+        else:
+            return jsonify({"subtitles": subtitle_text}), 200
 
     except Exception as e:
         logger.error(f"Error in /subs route: {e}")
