@@ -5,7 +5,7 @@ from urllib.parse import urlparse, parse_qs
 import dotenv
 import os
 import logging
-import tempfile  # Added import
+import re # Added import
 
 # logging setup - not nessary can remove also - added coz adat
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +18,24 @@ FLASK_DEBUG = os.getenv("FLASK_DEBUG", True if FLASK_ENV == "development" else F
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", 5000))
+
+# Regex patterns for cleaning subtitles
+TIMESTAMP_LINE_PATTERN = re.compile(
+    r'^(?:\\d{2}:)?\\d{2}:\\d{2}[.,]\\d{3} --> (?:\\d{2}:)?\\d{2}:\\d{2}[.,]\\d{3}.*$'
+)
+# More robust pattern for VTT headers and metadata
+VTT_HEADER_OR_METADATA_PATTERN = re.compile(
+    r'^(WEBVTT|Kind:|Language:).*$|^(NOTE|STYLE|REGION\\s*$|\\s*::cue).*$', re.IGNORECASE
+)
+INLINE_TIMESTAMP_PATTERN = re.compile(
+    r'<\\d{2}:\\d{2}:\\d{2}[.,]\\d{3}>',
+)
+CUE_TAG_PATTERN = re.compile(
+    r'</?c.*?>',
+)
+SPEAKER_TAG_PATTERN = re.compile(
+    r'<v\\s+[^>]+>.*?</v>',
+) # Match <v Speaker>...</v>
 
 app = Flask(__name__)
 CORS(app)
@@ -131,6 +149,54 @@ def generate_answer(video_info, question):
 
         For more specific answers, try asking about the video's title, channel, duration, views, or topic.
     """
+
+
+def clean_transcript(text: str) -> str:
+    """
+    Remove SRT/VTT timestamps and cue tags, dedupe, and
+    merge into paragraphs.
+    """
+    lines = text.splitlines()
+    paragraphs = []
+    current_para = []
+    prev_line = None
+
+    for line in lines:
+        # skip full timestamp lines and VTT headers/metadata
+        if TIMESTAMP_LINE_PATTERN.match(line) or VTT_HEADER_OR_METADATA_PATTERN.match(line):
+            continue
+        
+        # Remove speaker tags like <v Speaker Name>
+        line = SPEAKER_TAG_PATTERN.sub('', line)
+
+        # strip inline timestamps and cue tags
+        line = INLINE_TIMESTAMP_PATTERN.sub('', line)
+        line = CUE_TAG_PATTERN.sub('', line)
+        line = line.strip() # General strip
+
+        # Remove common VTT artifacts like "align:start position:0%" if they are the only content
+        if re.fullmatch(r'align:[a-zA-Z]+(?:\\s+position:[\\d%]+)?', line):
+            continue
+
+        # paragraph break
+        if not line:
+            if current_para:
+                paragraphs.append(' '.join(current_para))
+                current_para = []
+            continue
+
+        # skip duplicates
+        if line == prev_line:
+            continue
+
+        current_para.append(line)
+        prev_line = line
+
+    if current_para:
+        paragraphs.append(' '.join(current_para))
+
+    # join paragraphs with a blank line
+    return '\\n\\n'.join(paragraphs).strip()
 
 
 def get_subtitle_content(video_url, lang="en"):
@@ -264,9 +330,9 @@ def get_subtitles_handler():
 
         logger.info(f"Received /subs request for URL: {video_url}, lang: {lang}")
 
-        subtitle_text = get_subtitle_content(video_url, lang)
+        subtitle_text_raw = get_subtitle_content(video_url, lang)
 
-        if not subtitle_text:
+        if not subtitle_text_raw:
             return jsonify({"error": "Failed to retrieve subtitles or subtitles are empty."}), 404
 
         # getting error messages from get_subtitle_content 
@@ -283,11 +349,11 @@ def get_subtitles_handler():
         ]
 
         is_actual_error = False
-        if subtitle_text in known_error_messages:
+        if subtitle_text_raw in known_error_messages:
             is_actual_error = True
         else:
             for prefix in known_error_prefixes:
-                if subtitle_text.startswith(prefix):
+                if subtitle_text_raw.startswith(prefix):
                     is_actual_error = True
                     break
         
@@ -295,15 +361,19 @@ def get_subtitles_handler():
             status_code = 500  
             # server-side/download issues
             if (
-                "unavailable" in subtitle_text.lower() or 
-                "not found" in subtitle_text.lower() or 
-                "not available" in subtitle_text.lower()
+                "unavailable" in subtitle_text_raw.lower() or 
+                "not found" in subtitle_text_raw.lower() or 
+                "not available" in subtitle_text_raw.lower()
             ):
                 status_code = 404 
                 # type errors
-                return jsonify({"error": subtitle_text}), status_code
+            # This line was causing an issue, it should be part of the if block
+            return jsonify({"error": subtitle_text_raw}), status_code 
         else:
-            return jsonify({"subtitles": subtitle_text}), 200
+            cleaned_subtitle_text = clean_transcript(subtitle_text_raw)
+            if not cleaned_subtitle_text: # If cleaning results in empty string
+                 return jsonify({"error": "Subtitles became empty after cleaning. Original may have only contained timestamps/metadata."}), 404
+            return jsonify({"subtitles": cleaned_subtitle_text}), 200
 
     except Exception as e:
         logger.error(f"Error in /subs route: {e}")
