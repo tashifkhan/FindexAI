@@ -328,6 +328,16 @@ def clean_timestamps_and_dedupe(text: str) -> str:
 
     return "\n".join(out_lines)
 
+def remove_sentence_repeats(text: str) -> str:
+    """
+    Collapse any sentence (or quoted phrase) that is repeated
+    consecutively into a single instance.
+    """
+    lines = text.splitlines()
+    out_lines = [lines[i] for i in range(0, len(lines), 2)]
+
+    return "\n".join(out_lines)
+
 # ROutes
 @app.route("/ask", methods=["POST"])
 def ask():
@@ -429,10 +439,12 @@ def get_subtitles_handler():
                 ), status_code 
         else:
             cleaned_subtitle_text \
-                = clean_timestamps_and_dedupe(
-                    clean_srt_text(
-                        clean_transcript(
-                            subtitle_text_raw
+                = remove_sentence_repeats(
+                    clean_timestamps_and_dedupe(
+                        clean_srt_text(
+                            clean_transcript(
+                                subtitle_text_raw
+                                )
                             )
                         )
                     )
