@@ -2,11 +2,22 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import yt_dlp
 from urllib.parse import urlparse, parse_qs
+import dotenv
+import os
 import logging
 
 # logging setup - not nessary can remove also - added coz adat
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# load .env varibles
+dotenv.load_dotenv()
+FLASK_ENV=os.getenv("FLASK_ENV", "development")
+FLASK_DEBUG=os.getenv("FLASK_DEBUG", True if FLASK_ENV == "development" else False)
+
+BACKEND_HOST=os.getenv("BACKEND_HOST", "0.0.0.0")
+BACKEND_PORT=int(os.getenv("BACKEND_PORT", 5000))
+
 
 app = Flask(__name__)
 CORS(app)
@@ -171,5 +182,5 @@ def health():
 
 # server start
 if __name__ == "__main__":
-    print("http://localhost:5454")
-    app.run(debug=True, host="0.0.0.0", port=5454)
+    print(f"http://{"localhost" if BACKEND_HOST=="0.0.0.0" else BACKEND_HOST}:{BACKEND_PORT}")
+    app.run(debug=True, host=BACKEND_HOST, port=BACKEND_PORT)
