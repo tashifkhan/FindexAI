@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 
 
 @router.post("/", response_model=YTVideoInfo)
-def video_info_handler(request: VideoInfoRequest):
+async def video_info_handler(request: VideoInfoRequest):
     url = request.url
     logger.info(f"Received /video-info request for URL: {url}")
 
