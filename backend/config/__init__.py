@@ -2,7 +2,7 @@
 initalised the config module
 """
 
-import configeration as c
+from . import configeration as c
 
 DEV_ENV = c.DEV_ENV
 DEBUG = c.DEBUG

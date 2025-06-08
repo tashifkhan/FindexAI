@@ -1,6 +1,7 @@
+from . import get_subtitle_content
 from models import YTVideoInfo
 from config import get_logger
-from transcript_generator import proceesed_transcript
+from .transcript_generator import processed_transcript
 import yt_dlp
 from urllib.parse import urlparse, parse_qs
 import os
@@ -65,7 +66,7 @@ def get_video_info(video_url: str) -> Optional[YTVideoInfo]:
                             break
 
             if raw_transcript and not is_actual_error:
-                cleaned_transcript = proceesed_transcript(raw_transcript)
+                cleaned_transcript = processed_transcript(raw_transcript)
                 video_data["transcript"] = cleaned_transcript
             else:
                 logger.info(

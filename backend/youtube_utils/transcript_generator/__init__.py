@@ -8,7 +8,7 @@ from .srt import clean_srt_text
 from .timestamp import clean_timestamps_and_dedupe
 
 
-def proceesed_transcript(text: str) -> str:
+def processed_transcript(text: str) -> str:
     """Process the transcript text by cleaning it up."""
     cleaned_text = remove_sentence_repeats(
         clean_timestamps_and_dedupe(clean_srt_text(clean_transcript(text)))
@@ -17,4 +17,6 @@ def proceesed_transcript(text: str) -> str:
     return cleaned_text
 
 
-__all__ = ["proceesed_transcript"]
+__all__ = [
+    "processed_transcript",
+]

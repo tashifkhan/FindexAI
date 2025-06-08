@@ -2,9 +2,9 @@
 intialising routes as a module
 """
 
-import youtube
 from .asker import router as ask
 from .health import router as health
+from . import youtube
 
 __all__ = [
     "ask",
