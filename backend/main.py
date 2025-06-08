@@ -3,8 +3,8 @@ from flask_cors import CORS
 
 from config import BACKEND_HOST, BACKEND_PORT, get_logger
 from models import YTVideoInfo
-from youtube_agent import extract_video_id, get_video_info, get_subtitle_content
-from youtube_agent.transcript_generator import processed_transcript
+from youtube_utils import extract_video_id, get_video_info, get_subtitle_content
+from youtube_utils.transcript_generator import processed_transcript
 
 
 logger = get_logger(__name__)
