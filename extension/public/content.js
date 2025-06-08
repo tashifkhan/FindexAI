@@ -1,16 +1,63 @@
 // public/content.js
 
-console.log('YouTube Q&A Extension content script loaded on:', window.location.href);
+const ROOT_ID = "youtube-qa-app-root";
 
-// Function to create the root element for the React app
+function injectApp() {
+	if (document.getElementById(ROOT_ID)) return;
+
+	const appRoot = document.createElement("div");
+	appRoot.id = ROOT_ID;
+	document.body.appendChild(appRoot);
+
+	const script = document.createElement("script");
+	script.src = chrome.runtime.getURL("assets/index.js");
+	script.type = "module";
+	document.head.appendChild(script); // Inject into head for earlier execution if possible
+}
+
+// --- NEW: The Bridge Logic ---
+
+// 1. Listen for messages FROM the React app (Page World)
+window.addEventListener("message", (event) => {
+	// We only accept messages from ourselves
+	if (event.source !== window) return;
+
+	const { type, payload, requestId } = event.data;
+
+	if (type === "YOUTUBE_QA_REQUEST") {
+		console.log("Content.js: Received YOUTUBE_QA_REQUEST from page:", payload);
+		// 2. Forward the message TO the background script (using privileged API)
+		chrome.runtime.sendMessage({ type: payload.type, payload: payload.payload }, (response) => {
+			if (chrome.runtime.lastError) {
+				console.error("Content.js: Error sending message to background:", chrome.runtime.lastError.message);
+				// Send an error response back to the page
+				window.postMessage({
+					type: "YOUTUBE_QA_RESPONSE",
+					response: { error: chrome.runtime.lastError.message },
+					requestId: requestId,
+				}, "*");
+				return;
+			}
+			console.log("Content.js: Received response from background, sending to page:", response);
+			// 3. When the background script responds, send the data BACK to the React app
+			window.postMessage({
+				type: "YOUTUBE_QA_RESPONSE",
+				response: response,
+				requestId: requestId, // Include the original requestId
+			}, "*");
+		});
+	}
+}, false);
+
+// --- Original DOM manipulation and observation logic ---
+// Function to create the root element for the React app (can be simplified as injectApp handles it)
 function ensureAppRoot() {
-  let appRoot = document.getElementById("youtube-qa-app-root");
+  let appRoot = document.getElementById(ROOT_ID);
   if (!appRoot) {
-    console.log("Creating youtube-qa-app-root...");
+    console.log("Creating youtube-qa-app-root (ensureAppRoot)..."); // Should ideally be created by injectApp
     appRoot = document.createElement("div");
-    appRoot.id = "youtube-qa-app-root";
-    // Try to inject it in a more specific place if possible, otherwise fallback to body
-    const belowPlayer = document.getElementById('below'); // YouTube specific element
+    appRoot.id = ROOT_ID;
+    const belowPlayer = document.getElementById('below');
     if (belowPlayer) {
         belowPlayer.parentNode.insertBefore(appRoot, belowPlayer);
     } else {
@@ -20,22 +67,6 @@ function ensureAppRoot() {
   return appRoot;
 }
 
-// Inject the main React script
-function injectReactApp(rootElement) {
-    if (rootElement.querySelector('script[src*="assets/index.js"]')) {
-        console.log("React app script already injected.");
-        return;
-    }
-    console.log("Injecting React app script...");
-    const script = document.createElement("script");
-    script.src = chrome.runtime.getURL("assets/index.js"); // Vite bundles to assets/index.js
-    script.type = "module";
-    rootElement.appendChild(script);
-    console.log("React app script appended to root.");
-}
-
-// --- Logic from prototype/content.js ---
-
 // Extracts video id from url
 function getVideoId() {
     const urlParams = new URLSearchParams(window.location.search);
@@ -44,94 +75,71 @@ function getVideoId() {
 
 // Title video
 function getVideoTitle() {
-    // Updated selector for YouTube's current layout (as of late 2024/early 2025)
     const titleElement = document.querySelector('h1.style-scope.ytd-watch-metadata .title, h1.title.ytd-video-primary-info-renderer');
     return titleElement ? titleElement.textContent.trim() : "Unknown Title";
 }
 
 // Channel name extraction
 function getChannelName() {
-    // Updated selector
     const channelElement = document.querySelector('#owner #channel-name a, #upload-info #channel-name a, ytd-channel-name a');
     return channelElement ? channelElement.textContent.trim() : "Unknown Channel";
 }
 
-// Listener for messages from the React app or background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'getContentVideoInfo') {
-        console.log("content.js received request for getVideoInfo");
-        sendResponse({
-            videoId: getVideoId(),
-            title: getVideoTitle(),
-            channel: getChannelName(),
-            url: window.location.href
-        });
-        return true; // Indicates that the response is sent asynchronously or will be sent.
-    }
-});
-
 let currentVideoId = getVideoId();
 
-// Function to handle video changes
+// Function to handle video changes (SPA navigation)
 function handleVideoChange() {
     const newVideoId = getVideoId();
     if (newVideoId && newVideoId !== currentVideoId) {
-        console.log('Video changed. Old ID:', currentVideoId, 'New ID:', newVideoId);
+        console.log('Content.js: Video changed. Old ID:', currentVideoId, 'New ID:', newVideoId);
         currentVideoId = newVideoId;
-        // Notify the React app about the video change so it can re-fetch data
-        chrome.runtime.sendMessage({
-            type: "VIDEO_ID_CHANGED",
+        // Notify the React app (Page World) about the video change
+        // The React app's main.jsx MutationObserver should handle re-initialization or data fetching
+        // However, we can also send a direct message if the React app is set up to listen for it.
+        // For now, the main.jsx observer should catch the DOM change for the root element.
+        // If direct notification to React app is needed:
+        window.postMessage({
+            type: "VIDEO_ID_CHANGED_FROM_CONTENT", // A distinct type
             payload: {
                 videoId: newVideoId,
                 videoUrl: window.location.href,
                 title: getVideoTitle(),
                 channel: getChannelName()
             }
-        }).catch(err => console.warn("Error sending VIDEO_ID_CHANGED message:", err)); // Catch error if receiver doesn't exist yet
+        }, "*");
     }
 }
 
-// Observe for SPA navigation changes (YouTube uses a lot of dynamic loading)
-const observer = new MutationObserver((mutationsList, observer) => {
-    // More robust check for URL change, as title/body mutations can be frequent
+const pageObserver = new MutationObserver((mutationsList, observer) => {
     if (window.location.href.includes("watch?v=") && window.location.href.split("v=")[1]?.split("&")[0] !== currentVideoId) {
         handleVideoChange();
     }
-    // Also, re-ensure the app root exists if it somehow gets removed (less likely but for robustness)
-    const appRoot = ensureAppRoot();
-    if (!appRoot.querySelector('script[src*="assets/index.js"]')) {
-        injectReactApp(appRoot);
+    // Ensure app is injected if it's missing (e.g., after some aggressive DOM manipulation by YouTube)
+    if (!document.getElementById(ROOT_ID)) {
+        console.log("Content.js: App root missing, re-injecting...");
+        injectApp();
     }
 });
 
-
-// Start observing
-function initializeExtension() {
+function initializeContentScript() {
+    console.log('YouTube Q&A Extension content script initializing on:', window.location.href);
     if (window.location.hostname.includes("youtube.com") && window.location.pathname === "/watch") {
-        console.log("YouTube watch page detected. Initializing extension content.");
-        const appRoot = ensureAppRoot();
-        injectReactApp(appRoot);
-
-        // Initial check
+        console.log("Content.js: YouTube watch page detected. Injecting app.");
+        injectApp(); // This creates the root div and injects the React script.
         currentVideoId = getVideoId();
-        console.log("Initial video ID:", currentVideoId);
-
-        observer.observe(document.documentElement, { // Observe the whole document for more reliability
+        console.log("Content.js: Initial video ID:", currentVideoId);
+        pageObserver.observe(document.documentElement, {
             childList: true,
             subtree: true,
-            attributes: false // Usually don't need attributes for URL changes
         });
     } else {
-        console.log("Not a YouTube watch page. Extension content not injected.");
+        console.log("Content.js: Not a YouTube watch page. App not injected.");
     }
 }
 
-// Handle cases where the script is injected after the page is already loaded
+// Run initialization
 if (document.readyState === "complete" || document.readyState === "interactive") {
-    initializeExtension();
+    initializeContentScript();
 } else {
-    window.addEventListener("DOMContentLoaded", initializeExtension);
+    window.addEventListener("DOMContentLoaded", initializeContentScript);
 }
-
-// The 'index.css' is already injected via the manifest, so no need to link it here.
-// However, ensure your Vite build correctly outputs index.css to assets/index.css
