@@ -1,175 +1,241 @@
 import { useState, useEffect, useCallback } from 'react'
 
+// Import the message passing utility from your api.js file
+// We need to create this function in api.js first.
+const sendMessageToBackground = (type, payload) => {
+	return new Promise((resolve, reject) => {
+		if (!chrome.runtime?.id) {
+			// We are not in an extension environment.
+			// This is useful for local dev without the extension loaded.
+			console.warn(
+				'Not in extension context. API calls will be mocked or fail.'
+			)
+			// Reject or return mock data
+			return reject(new Error('Not an extension context.'))
+		}
+		chrome.runtime.sendMessage({ type, payload }, (response) => {
+			if (chrome.runtime.lastError) {
+				return reject(chrome.runtime.lastError)
+			}
+			if (response?.error) {
+				return reject(new Error(response.error))
+			}
+			resolve(response)
+		})
+	})
+}
+
 export const useYouTubeData = () => {
-  const [videoData, setVideoData] = useState(null)
-  const [isOnYouTube, setIsOnYouTube] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+	const [videoData, setVideoData] = useState(null)
+	const [isOnYouTube, setIsOnYouTube] = useState(false)
+	const [isLoading, setIsLoading] = useState(false)
+	const [currentVideoId, setCurrentVideoId] = useState(null)
 
-  // Check if we're on YouTube
-  const checkYouTubePage = useCallback(() => {
-    const isYT = window.location.hostname.includes('youtube.com') && 
-                 window.location.pathname === '/watch'
-    setIsOnYouTube(isYT)
-    return isYT
-  }, [])
+	// Check if we're on YouTube
+	const checkYouTubePage = useCallback(() => {
+		const isYT =
+			window.location.hostname.includes('youtube.com') &&
+			window.location.pathname === '/watch'
+		setIsOnYouTube(isYT)
+		return isYT
+	}, [])
 
-  // Extract video ID from URL
-  const extractVideoId = useCallback(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    return urlParams.get('v')
-  }, [])
+	const extractVideoIdFromUrl = useCallback((url) => {
+		try {
+			const urlParams = new URLSearchParams(new URL(url).search)
+			return urlParams.get('v')
+		} catch (e) {
+			console.error('Invalid URL for ID extraction:', url, e)
+			return null
+		}
+	}, [])
 
-  // Extract video metadata from the page
-  const extractVideoMetadata = useCallback(() => {
-    try {
-      // Try to get video title
-      const titleElement = document.querySelector('h1.ytd-video-primary-info-renderer, h1.title, #title h1')
-      const title = titleElement?.textContent?.trim() || 'Unknown Title'
+	const fetchVideoDataFromContentScript = useCallback(async () => {
+		console.log('Requesting video info from content script...')
+		return new Promise((resolve, reject) => {
+			if (!chrome.runtime?.id) {
+				return reject(new Error('Not an extension context.'))
+			}
+			chrome.runtime.sendMessage(
+				{ action: 'getContentVideoInfo' },
+				(response) => {
+					if (chrome.runtime.lastError) {
+						console.error(
+							'Error fetching from content script:',
+							chrome.runtime.lastError.message
+						)
+						return reject(chrome.runtime.lastError)
+					}
+					if (response && response.videoId) {
+						console.log('Received from content script:', response)
+						resolve(response)
+					} else {
+						console.warn(
+							'No valid response from content script for getContentVideoInfo'
+						)
+						// Fallback to backend if content script fails or doesn't provide ID
+						// This part can be enhanced based on how much you trust the content script vs backend
+						const videoUrl = window.location.href
+						const videoId = extractVideoIdFromUrl(videoUrl)
+						if (videoId) {
+							sendMessageToBackground('GET_VIDEO_INFO', { videoUrl })
+								.then(resolve)
+								.catch(reject)
+						} else {
+							reject(
+								new Error(
+									'Could not get videoId from URL for backend fallback'
+								)
+							)
+						}
+					}
+				}
+			)
+		})
+	}, [extractVideoIdFromUrl])
 
-      // Try to get channel name
-      const channelElement = document.querySelector(
-        '#channel-name a, .ytd-channel-name a, .ytd-video-owner-renderer a'
-      )
-      const uploader = channelElement?.textContent?.trim() || 'Unknown Channel'
+	const fetchVideoDataFromBackend = useCallback(
+		async (videoUrl) => {
+			if (!videoUrl) return null
+			console.log('Fetching video data from backend for URL:', videoUrl)
+			setIsLoading(true)
+			try {
+				const data = await sendMessageToBackground('GET_VIDEO_INFO', {
+					videoUrl,
+				})
+				return data
+			} catch (error) {
+				console.error('Error fetching video data via background script:', error)
+				return {
+					title: 'Error fetching data',
+					uploader: 'Please check backend',
+					view_count: 0,
+					duration: 0,
+					url: videoUrl,
+					videoId: extractVideoIdFromUrl(videoUrl),
+				}
+			} finally {
+				setIsLoading(false)
+			}
+		},
+		[extractVideoIdFromUrl]
+	)
 
-      // Try to get view count
-      const viewElement = document.querySelector(
-        '.view-count, #info-strings yt-formatted-string, .ytd-video-view-count-renderer'
-      )
-      const viewText = viewElement?.textContent?.trim() || '0'
-      const view_count = parseInt(viewText.replace(/[^\d]/g, '')) || 0
+	const updateVideoData = useCallback(async () => {
+		if (!checkYouTubePage()) {
+			setVideoData(null)
+			setCurrentVideoId(null)
+			return
+		}
 
-      // Try to get duration from the player
-      const durationElement = document.querySelector(
-        '.ytp-time-duration, .ytd-thumbnail-overlay-time-status-renderer'
-      )
-      let duration = 0
-      if (durationElement) {
-        const timeText = durationElement.textContent?.trim()
-        if (timeText) {
-          const parts = timeText.split(':').map(Number)
-          if (parts.length === 2) {
-            duration = parts[0] * 60 + parts[1]
-          } else if (parts.length === 3) {
-            duration = parts[0] * 3600 + parts[1] * 60 + parts[2]
-          }
-        }
-      }
+		try {
+			setIsLoading(true)
+			const contentScriptData = await fetchVideoDataFromContentScript()
+			if (contentScriptData && contentScriptData.videoId) {
+				console.log('Using data from content script:', contentScriptData)
+				// Optionally, enrich with backend data if needed, or use content script data directly
+				// For now, let's assume content script data is sufficient for the initial display
+				// and backend can be called for more details if required by other components.
+				const backendData = await fetchVideoDataFromBackend(contentScriptData.url)
+				setVideoData({ ...contentScriptData, ...backendData }) // Merge data, backend might have more details
+				setCurrentVideoId(contentScriptData.videoId)
+			} else {
+				// Fallback to direct URL check and backend fetch if content script fails
+				console.warn(
+					'Content script did not return videoId, falling back to URL check and backend.'
+				)
+				const videoUrl = window.location.href
+				const videoId = extractVideoIdFromUrl(videoUrl)
+				if (videoId) {
+					const backendData = await fetchVideoDataFromBackend(videoUrl)
+					setVideoData(backendData)
+					setCurrentVideoId(videoId)
+				} else {
+					setVideoData(null) // No valid video ID found
+					setCurrentVideoId(null)
+				}
+			}
+		} catch (error) {
+			console.error('Error in updateVideoData:', error)
+			setVideoData({
+				title: 'Error loading video data',
+				uploader: 'N/A',
+				videoId: currentVideoId || 'Error',
+			})
+		} finally {
+			setIsLoading(false)
+		}
+	}, [
+		checkYouTubePage,
+		fetchVideoDataFromContentScript,
+		fetchVideoDataFromBackend,
+		extractVideoIdFromUrl,
+		currentVideoId,
+	])
 
-      return {
-        title,
-        uploader,
-        view_count,
-        duration,
-        url: window.location.href,
-        videoId: extractVideoId()
-      }
-    } catch (error) {
-      console.error('Error extracting video metadata:', error)
-      return {
-        title: 'Unknown Title',
-        uploader: 'Unknown Channel',
-        view_count: 0,
-        duration: 0,
-        url: window.location.href,
-        videoId: extractVideoId()
-      }
-    }
-  }, [extractVideoId])
+	useEffect(() => {
+		updateVideoData() // Initial load
 
-  // Fetch full video data from backend
-  const fetchVideoData = useCallback(async (videoUrl) => {
-    if (!videoUrl) return null
+		const messageListener = (request, sender, sendResponse) => {
+			if (request.type === 'VIDEO_ID_CHANGED') {
+				console.log('Hook received VIDEO_ID_CHANGED message:', request.payload)
+				// Ensure data is an object and has videoId
+				if (
+					typeof request.payload === 'object' &&
+					request.payload !== null &&
+					request.payload.videoId
+				) {
+					// Update videoData with the payload from content script, then fetch more from backend
+					setIsLoading(true)
+					fetchVideoDataFromBackend(request.payload.videoUrl)
+						.then((backendData) => {
+							setVideoData({
+								title: request.payload.title,
+								channel: request.payload.channel,
+								videoId: request.payload.videoId,
+								url: request.payload.videoUrl,
+								...backendData, // merge with more detailed backend data
+							})
+							setCurrentVideoId(request.payload.videoId)
+							setIsLoading(false)
+						})
+						.catch((error) => {
+							console.error(
+								'Error fetching backend data after VIDEO_ID_CHANGED:',
+								error
+							)
+							// Set basic info from content script even if backend fails
+							setVideoData({
+								title: request.payload.title || 'Error after navigation',
+								channel: request.payload.channel || 'N/A',
+								videoId: request.payload.videoId,
+								url: request.payload.videoUrl,
+							})
+							setCurrentVideoId(request.payload.videoId)
+							setIsLoading(false)
+						})
+				} else {
+					console.warn(
+						'Received VIDEO_ID_CHANGED but payload is invalid:',
+						request.payload
+					)
+					// Fallback to a full refresh if payload is not as expected
+					updateVideoData()
+				}
+			}
+		}
 
-    setIsLoading(true)
-    try {
-      const response = await fetch(`http://localhost:5000/api/video-info`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ video_url: videoUrl })
-      })
+		chrome.runtime?.onMessage.addListener(messageListener)
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+		return () => {
+			chrome.runtime?.onMessage.removeListener(messageListener)
+		}
+	}, [updateVideoData, fetchVideoDataFromBackend]) // updateVideoData is stable due to useCallback
 
-      const data = await response.json()
-      return data
-    } catch (error) {
-      console.error('Error fetching video data:', error)
-      // Return basic metadata if backend fails
-      return extractVideoMetadata()
-    } finally {
-      setIsLoading(false)
-    }
-  }, [extractVideoMetadata])
-
-  // Main function to extract video data
-  const extractVideoData = useCallback(async () => {
-    if (!checkYouTubePage()) {
-      setVideoData(null)
-      return
-    }
-
-    // First, set basic metadata immediately
-    const basicData = extractVideoMetadata()
-    setVideoData(basicData)
-
-    // Then try to get full data from backend
-    if (basicData.url) {
-      const fullData = await fetchVideoData(basicData.url)
-      if (fullData) {
-        setVideoData(fullData)
-      }
-    }
-  }, [checkYouTubePage, extractVideoMetadata, fetchVideoData])
-
-  // Listen for URL changes (YouTube is a SPA)
-  useEffect(() => {
-    let currentUrl = window.location.href
-    
-    const checkForUrlChange = () => {
-      if (window.location.href !== currentUrl) {
-        currentUrl = window.location.href
-        setTimeout(extractVideoData, 1000) // Delay to let YouTube load
-      }
-    }
-
-    // Use MutationObserver to detect navigation changes
-    const observer = new MutationObserver(checkForUrlChange)
-    observer.observe(document.body, { childList: true, subtree: true })
-
-    // Initial check
-    extractVideoData()
-
-    // Also listen for popstate events
-    window.addEventListener('popstate', extractVideoData)
-
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('popstate', extractVideoData)
-    }
-  }, [extractVideoData])
-
-  // Listen for page visibility changes
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (!document.hidden && checkYouTubePage()) {
-        // Re-extract data when page becomes visible
-        setTimeout(extractVideoData, 500)
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [extractVideoData, checkYouTubePage])
-
-  return {
-    videoData,
-    isOnYouTube,
-    isLoading,
-    extractVideoData
-  }
+	return {
+		videoData,
+		isOnYouTube,
+		isLoading,
+		extractVideoData: updateVideoData, // Expose the main function
+	}
 }
