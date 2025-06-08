@@ -33,7 +33,7 @@ FLASK_ENV = os.getenv("FLASK_ENV", "development")
 FLASK_DEBUG = os.getenv("FLASK_DEBUG", True if FLASK_ENV == "development" else False)
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")
-BACKEND_PORT = int(os.getenv("BACKEND_PORT", 5000))
+BACKEND_PORT = int(os.getenv("BACKEND_PORT", 5454))
 
 # regex patterns for cleaning subtitles
 TIMESTAMP_LINE_PATTERN = re.compile(
@@ -397,11 +397,11 @@ def ask():
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
-        video_url = data.get("url")
+        video_url = data.get("video_url")
         question = data.get("question")
 
         if not video_url or not question:
-            return jsonify({"error": "URL and question are required"}), 400
+            return jsonify({"error": "video_url and question are required"}), 400
 
         logger.info(f"Processing question: '{question}' for URL: {video_url}")
 
@@ -513,6 +513,26 @@ def get_subtitles_handler():
 def health():
     return jsonify({"status": "healthy", "message": "YouTube Q&A Backend is running"})
 
+@app.route("/api/video-info", methods=["POST"])
+def video_info_handler():
+    try:
+        data = request.get_json()
+        if not data or "video_url" not in data:
+            return jsonify({"error": "video_url is required"}), 400
+
+        video_url = data["video_url"]
+        logger.info(f"Received /api/video-info request for URL: {video_url}")
+
+        video_info_obj = get_video_info(video_url)
+        if not video_info_obj:
+            return jsonify({"error": "Could not fetch video information"}), 500
+
+        # Use .model_dump() for Pydantic v2+ or .dict() for v1
+        return jsonify(video_info_obj.model_dump())
+
+    except Exception as e:
+        logger.error(f"Error in /api/video-info route: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 # server start
 if __name__ == "__main__":
