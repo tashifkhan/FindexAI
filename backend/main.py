@@ -389,93 +389,8 @@ def remove_sentence_repeats(text: str) -> str:
     return "\n".join(out_lines)
 
 # ROutes
-@app.route("/api/ask", methods=["POST"])
+@app.route("/ask", methods=["POST"])
 def ask():
-    try:
-        data = request.get_json()
-
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-
-        video_url = data.get("video_url")  # Changed from "url" to "video_url"
-        question = data.get("question")
-
-        if not video_url or not question:
-            return jsonify({"error": "video_url and question are required"}), 400
-
-        logger.info(f"Processing question: '{question}' for URL: {video_url}")
-
-        video_id = extract_video_id(video_url)
-        if not video_id:
-            return jsonify({"error": "Invalid YouTube URL"}), 400
-
-        # info using yt-dlp
-        video_info_obj = get_video_info(video_url) # Renamed to avoid confusion, this is a YTVideoInfo object
-        if not video_info_obj:
-            return jsonify({"error": "Could not fetch video information"}), 500
-
-        # answer
-        answer = generate_answer(video_info_obj, question)
-
-        return jsonify(
-            {
-                "answer": answer,
-                "video_title": video_info_obj.title, # Direct attribute access
-                "video_channel": video_info_obj.uploader, # Direct attribute access
-            }
-        )
-
-    except Exception as e:
-        logger.error(f"Error processing request: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@app.route("/api/video-info", methods=["POST"])
-def get_video_info_route():
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No data provided"}), 400
-
-        video_url = data.get("video_url")
-        if not video_url:
-            return jsonify({"error": "video_url is required"}), 400
-
-        logger.info(f"Getting video info for URL: {video_url}")
-
-        video_id = extract_video_id(video_url)
-        if not video_id:
-            return jsonify({"error": "Invalid YouTube URL"}), 400
-
-        video_info_obj = get_video_info(video_url)
-        if not video_info_obj:
-            return jsonify({"error": "Could not fetch video information"}), 500
-
-        # Convert to dict for JSON response
-        video_info_dict = {
-            "title": video_info_obj.title,
-            "description": video_info_obj.description,
-            "duration": video_info_obj.duration,
-            "uploader": video_info_obj.uploader,
-            "upload_date": video_info_obj.upload_date,
-            "view_count": video_info_obj.view_count,
-            "like_count": video_info_obj.like_count,
-            "tags": video_info_obj.tags,
-            "categories": video_info_obj.categories,
-            "transcript": video_info_obj.transcript,
-            "url": video_url,
-            "videoId": video_id
-        }
-
-        return jsonify(video_info_dict)
-
-    except Exception as e:
-        logger.error(f"Error getting video info: {e}")
-        return jsonify({"error": "Internal server error"}), 500
-
-
-@app.route("/ask", methods=["POST"])  # Keep old route for backward compatibility
-def ask_old():
     try:
         data = request.get_json()
 
@@ -594,13 +509,8 @@ def get_subtitles_handler():
         return jsonify({"error": f"Internal server error in /subs route: {str(e)}"}), 500
 
 
-@app.route("/api/health", methods=["GET"])
+@app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "healthy", "message": "YouTube Q&A Backend is running"})
-
-
-@app.route("/health", methods=["GET"])  # Keep old route for backward compatibility
-def health_old():
     return jsonify({"status": "healthy", "message": "YouTube Q&A Backend is running"})
 
 
