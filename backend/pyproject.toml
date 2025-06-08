@@ -5,8 +5,7 @@ description = "YouTube QA Extension for Flask"
 requires-python = ">=3.13"
 dependencies = [
     "bs4>=0.0.2",
-    "flask>=3.1.1",
-    "flask-cors>=6.0.0",
+    "fastapi>=0.115.12",
     "pydantic>=2.11.5",
     "python-dotenv>=1.1.0",
     "requests>=2.32.3",
