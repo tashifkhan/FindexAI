@@ -12,7 +12,7 @@ NOTE: Work in Progress
 
 ### Backend
 
-- [ ] Pydantic Classes
+- [x] Pydantic Classes
 - [ ] LangChain Agents
 - [ ] ReAct
 - [ ] Multi Model Support (choose your model)
@@ -22,22 +22,22 @@ NOTE: Work in Progress
 - [ ] RAG models - Embeddings
 - [ ] Vector Database - FAISS
 - [ ] Stream Output (websockets)
-- [ ] Serverless / microservices Achiture
-- [ ] Google Serach Agent
-- [ ] YT Transscription on your own
-- [ ] Website to Mardown
+- [x] Serverless / microservices Achiture
+- [x] Google Serach Agent
+- [x] YT Transscription on your own
+- [x] Website to Mardown
 - [ ] Flask --> FastAPI
 - [ ] User Control
 - [ ] Auth? (maybe but ppl getting their own api keys so idts)
 
 ### Frontend
 
-- [ ] Basic UI
-- [ ] React to extension
-- [ ] Youtube UI injection
-- [ ] Sidebar for chat
-- [ ] Shortcut (ctrl + f / ctrl + shift + f)
-- [ ] floating bar
+- [x] Basic UI
+- [x] React to extension
+- [x] Youtube UI injection
+- [x] Sidebar for chat
+- [x] Shortcut (ctrl + f / ctrl + shift + f)
+- [x] floating bar
 - [ ] Fix bg transparent error
 - [ ] z indexing fix
 - [ ] multiple unnessary API calls fix
