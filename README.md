@@ -29,6 +29,7 @@ NOTE: Work in Progress
 - [x] YT Transscription on your own
 - [x] WebCrawler
 - [x] Website to Mardown
+- [x] Handle Docs
 - [x] Modularise the backend
 - [x] Flask --> FastAPI
 - [ ] User Control
