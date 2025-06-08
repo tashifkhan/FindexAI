@@ -47,5 +47,12 @@ app.include_router(
 
 # server start
 if __name__ == "__main__":
+    import uvicorn
     print(f"http://{"localhost" if BACKEND_HOST == "0.0.0.0" else BACKEND_HOST}:{BACKEND_PORT}")
-    app.run(debug=True, host=BACKEND_HOST, port=BACKEND_PORT)
+    uvicorn.run(
+        "main:app",
+        host=BACKEND_HOST,
+        port=BACKEND_PORT,
+        reload=True,
+        log_level="info",
+    )

@@ -24,13 +24,13 @@ NOTE: Work in Progress
 - [ ] RAG models - Embeddings
 - [ ] Vector Database - FAISS
 - [ ] Stream Output (websockets)
-- [ ] Serverless / microservices Achiture
+- [x] Serverless / microservices Achiture
 - [x] Google Serach Agent
 - [x] YT Transscription on your own
 - [x] WebCrawler
 - [x] Website to Mardown
 - [x] Modularise the backend
-- [ ] Flask --> FastAPI
+- [x] Flask --> FastAPI
 - [ ] User Control
 - [ ] Auth? (maybe but ppl getting their own api keys so idts)
 
