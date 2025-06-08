@@ -35,7 +35,7 @@ const YouTubeQAApp = () => {
 	useEffect(() => {
 		const handleKeyDown = (e) => {
 			// Ctrl/Cmd + F for search
-			if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+			if ((e.ctrlKey || e.metaKey) && e.key === "shift" && e.key === "f") {
 				e.preventDefault();
 				setIsSearchMode(true);
 			}

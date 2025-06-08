@@ -513,7 +513,7 @@ def get_subtitles_handler():
 def health():
     return jsonify({"status": "healthy", "message": "YouTube Q&A Backend is running"})
 
-@app.route("/api/video-info", methods=["POST"])
+@app.route("/video-info", methods=["POST"])
 def video_info_handler():
     try:
         data = request.get_json()
@@ -521,17 +521,16 @@ def video_info_handler():
             return jsonify({"error": "video_url is required"}), 400
 
         video_url = data["video_url"]
-        logger.info(f"Received /api/video-info request for URL: {video_url}")
+        logger.info(f"Received /video-info request for URL: {video_url}")
 
         video_info_obj = get_video_info(video_url)
         if not video_info_obj:
             return jsonify({"error": "Could not fetch video information"}), 500
 
-        # Use .model_dump() for Pydantic v2+ or .dict() for v1
         return jsonify(video_info_obj.model_dump())
 
     except Exception as e:
-        logger.error(f"Error in /api/video-info route: {e}")
+        logger.error(f"Error in /video-info route: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
 # server start
