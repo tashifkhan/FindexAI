@@ -15,10 +15,12 @@ NOTE: Work in Progress
 - [x] Pydantic Classes
 - [ ] LangChain Agents
 - [ ] ReAct
+- [ ] Agentic Workflow
 - [ ] Multi Model Support (choose your model)
 - [ ] Bring your own API key
 - [ ] Chat History
 - [ ] SQLite Database
+- [ ] Chunking - based on 60% context window utilisation
 - [ ] RAG models - Embeddings
 - [ ] Vector Database - FAISS
 - [ ] Stream Output (websockets)
@@ -26,6 +28,7 @@ NOTE: Work in Progress
 - [x] Google Serach Agent
 - [x] YT Transscription on your own
 - [x] Website to Mardown
+- [x] Modularise the backend
 - [ ] Flask --> FastAPI
 - [ ] User Control
 - [ ] Auth? (maybe but ppl getting their own api keys so idts)
