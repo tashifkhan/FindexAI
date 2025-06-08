@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  
+  body {
+    @apply bg-gray-50 text-gray-900;
+    margin: 0;
+    min-height: 100vh;
+  }
+}
+
+@layer components {
+  .chat-bubble {
+    @apply max-w-xs lg:max-w-md px-4 py-2 rounded-2xl text-sm;
+  }
+  
+  .chat-bubble-user {
+    @apply bg-blue-500 text-white ml-auto rounded-br-md;
+  }
+  
+  .chat-bubble-ai {
+    @apply bg-white text-gray-800 border border-gray-200 rounded-bl-md;
+  }
+  
+  .floating-button {
+    @apply fixed bottom-6 right-6 w-14 h-14 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center z-50;
+  }
+  
+  .search-highlight {
+    @apply bg-yellow-200 text-yellow-900 px-1 rounded;
+  }
+  
+  .search-highlight-current {
+    @apply bg-yellow-400 text-yellow-900 px-1 rounded;
+  }
+}
