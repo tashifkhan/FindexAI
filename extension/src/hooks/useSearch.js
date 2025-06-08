@@ -1,184 +1,161 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from "react";
 
 export const useSearch = () => {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [searchResults, setSearchResults] = useState([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const highlightedElementsRef = useRef([])
-  const searchResultsRef = useRef([])
+	const [searchTerm, setSearchTerm] = useState("");
+	const [searchResults, setSearchResults] = useState([]);
+	const [currentIndex, setCurrentIndex] = useState(0);
+	const originalNodesRef = useRef([]); // To store original state for cleanup
 
-  // Update refs when values change
-  useEffect(() => {
-    searchResultsRef.current = searchResults
-  }, [searchResults])
+	// Clear all highlights by restoring the original text nodes
+	const clearHighlights = useCallback(() => {
+		originalNodesRef.current.forEach(({ parent, node }) => {
+			if (parent && parent.contains(node)) {
+				parent.replaceWith(node); // Restore the original text node
+			}
+		});
+		// After restoring, normalize the parent to merge adjacent text nodes
+		originalNodesRef.current.forEach(({ parent }) => {
+			parent?.parentNode?.normalize();
+		});
+		originalNodesRef.current = [];
+		setSearchResults([]);
+		setCurrentIndex(0);
+	}, []);
 
-  // Clear all highlights
-  const clearHighlights = useCallback(() => {
-    highlightedElementsRef.current.forEach(({ element, originalHTML }) => {
-      try {
-        element.innerHTML = originalHTML
-      } catch (error) {
-        // Element might have been removed from DOM
-        console.warn('Could not restore element:', error)
-      }
-    })
-    highlightedElementsRef.current = []
-    setSearchResults([])
-    setCurrentIndex(0)
-  }, [])
+	// The new, safe highlighting function that avoids innerHTML
+	const highlightText = useCallback(
+		(term) => {
+			clearHighlights();
+			if (!term.trim()) return;
 
-  // Function to highlight text in the DOM
-  const highlightText = useCallback((term) => {
-    if (!term.trim()) {
-      clearHighlights()
-      return
-    }
+			const walker = document.createTreeWalker(
+				document.body,
+				NodeFilter.SHOW_TEXT,
+				{
+					acceptNode: (node) => {
+						const parent = node.parentElement;
+						if (
+							!parent ||
+							["SCRIPT", "STYLE", "NOSCRIPT", "MARK"].includes(parent.tagName)
+						) {
+							return NodeFilter.FILTER_REJECT;
+						}
+						return node.nodeValue.toLowerCase().includes(term.toLowerCase())
+							? NodeFilter.FILTER_ACCEPT
+							: NodeFilter.FILTER_REJECT;
+					},
+				}
+			);
 
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node) => {
-          // Skip script and style elements
-          const parent = node.parentElement
-          if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) {
-            return NodeFilter.FILTER_REJECT
-          }
-          
-          // Only include text nodes that contain the search term
-          return node.textContent.toLowerCase().includes(term.toLowerCase())
-            ? NodeFilter.FILTER_ACCEPT
-            : NodeFilter.FILTER_REJECT
-        }
-      }
-    )
+			const textNodes = [];
+			let node;
+			while ((node = walker.nextNode())) {
+				textNodes.push(node);
+			}
 
-    const textNodes = []
-    let node
-    while (node = walker.nextNode()) {
-      textNodes.push(node)
-    }
+			const results = [];
+			const originalNodes = [];
 
-    const results = []
-    const elements = []
+			textNodes.forEach((node) => {
+				const text = node.nodeValue;
+				const regex = new RegExp(
+					`(${term.replace(/[.*+?^${"()"}|\[\]\\\\]/g, "\\$&")})`,
+					"gi"
+				);
+				const parts = text.split(regex);
 
-    textNodes.forEach((textNode) => {
-      const text = textNode.textContent
-      const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-      const matches = [...text.matchAll(regex)]
+				if (parts.length > 1) {
+					const fragment = document.createDocumentFragment();
+					parts.forEach((part, index) => {
+						if (index % 2 === 1) {
+							// This is a match
+							const mark = document.createElement("mark");
+							mark.className = "search-highlight";
+							mark.textContent = part;
+							fragment.appendChild(mark);
+							results.push({ element: mark, index: results.length });
+						} else if (part) {
+							fragment.appendChild(document.createTextNode(part));
+						}
+					});
 
-      if (matches.length > 0) {
-        const parent = textNode.parentElement
-        const originalHTML = parent.innerHTML
-        
-        // Replace text with highlighted version
-        const highlightedHTML = text.replace(regex, '<mark class="search-highlight">$1</mark>')
-        
-        // Only replace if the parent doesn't already contain our highlights
-        if (!parent.querySelector('.search-highlight')) {
-          parent.innerHTML = parent.innerHTML.replace(text, highlightedHTML)
-          elements.push({ element: parent, originalHTML })
-          
-          // Add results for navigation
-          const newHighlights = parent.querySelectorAll('.search-highlight')
-          newHighlights.forEach((highlight, index) => {
-            results.push({
-              element: highlight,
-              index: results.length
-            })
-          })
-        }
-      }
-    })
+					const parent = node.parentNode;
+					if (parent) {
+						originalNodes.push({ parent: parent, node: node.cloneNode() });
+						parent.replaceChild(fragment, node);
+					}
+				}
+			});
 
-    highlightedElementsRef.current = elements
-    setSearchResults(results)
-    setCurrentIndex(0)
+			originalNodesRef.current = originalNodes;
+			setSearchResults(results);
+			setCurrentIndex(0);
 
-    // Scroll to first result
-    if (results.length > 0) {
-      scrollToResult(0, results)
-    }
-  }, [])
+			if (results.length > 0) {
+				scrollToResult(0, results);
+			}
+		},
+		[clearHighlights]
+	);
 
-  // Scroll to a specific result
-  const scrollToResult = useCallback((index, results) => {
-    const resultsToUse = results || searchResultsRef.current
-    if (resultsToUse.length === 0) return
+	const scrollToResult = useCallback((index, results) => {
+		const resultsToUse = results || searchResults;
+		if (resultsToUse.length === 0) return;
 
-    // Remove current highlight class from all elements
-    document.querySelectorAll('.search-highlight-current').forEach(el => {
-      el.classList.remove('search-highlight-current')
-      el.classList.add('search-highlight')
-    })
+		document.querySelectorAll(".search-highlight-current").forEach((el) => {
+			el.classList.remove("search-highlight-current");
+			el.classList.add("search-highlight");
+		});
 
-    // Add current highlight to the new element
-    const result = resultsToUse[index]
-    if (result && result.element) {
-      result.element.classList.remove('search-highlight')
-      result.element.classList.add('search-highlight-current')
-      result.element.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      })
-    }
-  }, [])
+		const result = resultsToUse[index];
+		if (result && result.element) {
+			result.element.classList.remove("search-highlight");
+			result.element.classList.add("search-highlight-current");
+			result.element.scrollIntoView({ behavior: "smooth", block: "center" });
+		}
+	}, [searchResults]);
 
-  // Navigate to next result
-  const nextResult = useCallback(() => {
-    const results = searchResultsRef.current
-    if (results.length === 0) return
-    setCurrentIndex(prevIndex => {
-      const newIndex = (prevIndex + 1) % results.length
-      scrollToResult(newIndex)
-      return newIndex
-    })
-  }, [])
+	const nextResult = useCallback(() => {
+		if (searchResults.length === 0) return;
+		const newIndex = (currentIndex + 1) % searchResults.length;
+		setCurrentIndex(newIndex);
+		scrollToResult(newIndex);
+	}, [currentIndex, searchResults, scrollToResult]);
 
-  // Navigate to previous result
-  const prevResult = useCallback(() => {
-    const results = searchResultsRef.current
-    if (results.length === 0) return
-    setCurrentIndex(prevIndex => {
-      const newIndex = prevIndex === 0 ? results.length - 1 : prevIndex - 1
-      scrollToResult(newIndex)
-      return newIndex
-    })
-  }, [])
+	const prevResult = useCallback(() => {
+		if (searchResults.length === 0) return;
+		const newIndex =
+			currentIndex === 0 ? searchResults.length - 1 : currentIndex - 1;
+		setCurrentIndex(newIndex);
+		scrollToResult(newIndex);
+	}, [currentIndex, searchResults, scrollToResult]);
 
-  // Clear search
-  const clearSearch = useCallback(() => {
-    clearHighlights()
-    setSearchTerm('')
-  }, [])
+	const clearSearch = useCallback(() => {
+		clearHighlights();
+		setSearchTerm("");
+	}, [clearHighlights]);
 
-  // Effect to update highlights when search term changes
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      if (searchTerm.trim()) {
-        highlightText(searchTerm)
-      } else {
-        clearHighlights()
-      }
-    }, 300) // Debounce search
+	useEffect(() => {
+		const timeoutId = setTimeout(() => {
+			highlightText(searchTerm);
+		}, 300); // Debounce search
 
-    return () => clearTimeout(timeoutId)
-  }, [searchTerm])
+		return () => clearTimeout(timeoutId);
+	}, [searchTerm, highlightText]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      clearHighlights()
-    }
-  }, [])
+	useEffect(() => {
+		return () => {
+			clearHighlights();
+		};
+	}, [clearHighlights]);
 
-  return {
-    searchTerm,
-    setSearchTerm,
-    searchResults,
-    currentIndex,
-    nextResult,
-    prevResult,
-    clearSearch
-  }
-}
+	return {
+		searchTerm,
+		setSearchTerm,
+		searchResults,
+		currentIndex,
+		nextResult,
+		prevResult,
+		clearSearch,
+	};
+};

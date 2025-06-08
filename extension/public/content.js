@@ -1,5 +1,3 @@
-// public/content.js
-
 const ROOT_ID = "youtube-qa-app-root";
 
 function injectApp() {

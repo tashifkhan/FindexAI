@@ -1,5 +1,3 @@
-// public/background.js
-
 const API_BASE_URL = "http://localhost:5454";
 
 // Listener for messages from the content script (your React app)
